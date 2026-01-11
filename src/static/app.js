@@ -4,6 +4,32 @@ document.addEventListener("DOMContentLoaded", () => {
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
 
+  // helper minimo per XSS e formato
+  function escapeHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function formatDisplayName(raw) {
+    if (!raw) return "";
+    if (raw.includes("@")) {
+      const local = raw.split("@")[0];
+      return local.replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+    return raw.replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function initialsFromName(raw) {
+    const name = formatDisplayName(raw);
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
   // Function to fetch activities from API
   async function fetchActivities() {
     try {
@@ -13,18 +39,42 @@ document.addEventListener("DOMContentLoaded", () => {
       // Clear loading message
       activitiesList.innerHTML = "";
 
+      // Clear existing non-default options to avoid duplicates
+      activitySelect.querySelectorAll('option:not([value=""])').forEach((o) => o.remove());
+
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
         const activityCard = document.createElement("div");
         activityCard.className = "activity-card";
 
-        const spotsLeft = details.max_participants - details.participants.length;
+        const participants = Array.isArray(details.participants) ? details.participants : [];
+        const spotsLeft = details.max_participants - participants.length;
+
+        let participantsHtml = "";
+        if (participants.length === 0) {
+          participantsHtml = `<p class="participants-empty">No participants yet</p>`;
+        } else {
+          participantsHtml =
+            '<ul class="participants-list">' +
+            participants
+              .map((p) => {
+                const safeName = escapeHtml(formatDisplayName(p));
+                const safeInitials = escapeHtml(initialsFromName(p));
+                return `<li><span class="avatar">${safeInitials}</span><span class="participant-name">${safeName}</span></li>`;
+              })
+              .join("") +
+            "</ul>";
+        }
 
         activityCard.innerHTML = `
-          <h4>${name}</h4>
-          <p>${details.description}</p>
-          <p><strong>Schedule:</strong> ${details.schedule}</p>
+          <h4>${escapeHtml(name)}</h4>
+          <p>${escapeHtml(details.description)}</p>
+          <p><strong>Schedule:</strong> ${escapeHtml(details.schedule)}</p>
           <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+          <div class="participants-section" role="group" aria-label="${escapeHtml(name)} participants">
+            <strong>Participants:</strong>
+            ${participantsHtml}
+          </div>
         `;
 
         activitiesList.appendChild(activityCard);
@@ -62,6 +112,9 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
         signupForm.reset();
+
+        // Refresh activities so participants list updates
+        fetchActivities();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
